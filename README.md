@@ -12,16 +12,16 @@ No Windows-only TCL tool, no driver installation, no Python.
 ee-setup
 ```
 
-That is the whole interface. It finds the router, asks for the admin password
-and for the new root/SSH password (hidden input), applies the changes with a
-backup first, prints every step and offers to reboot so ADB comes up.
+That is the whole interface. It finds the router, asks for the admin password,
+applies the changes with a backup first, prints every step and offers to reboot
+so ADB comes up. The root/SSH password defaults to `oemlinux1`.
 
 Flags, for non-interactive use:
 
 ```sh
 --host IP            skip auto-detection
 --password PW        admin password instead of the prompt
---root-password PW   new root/SSH password instead of the prompt
+--root-password PW   root/SSH password (default: oemlinux1)
 ```
 
 ## What it does
@@ -37,7 +37,7 @@ authenticated commands. `ee-setup` logs in, then uses that channel to:
    on exit (including on failure);
 3. remove `/jrd-resource/resource/lock_flag` so adbd accepts `shell:`, `exec:`
    and `sync:`;
-4. write the new root password into `/etc/shadow` (SHA-512 crypt);
+4. set the root password with `chpasswd` (falling back to `passwd`);
 5. write `0196` to `/systemrw/boot_hsusb_comp`, so the debug composition — with
    ADB — is used from the next boot on.
 
