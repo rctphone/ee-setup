@@ -51,14 +51,14 @@ package() {
     else
         ext=""
     fi
-    CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$goarch" \
+    CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$goarch"
         go build -trimpath -ldflags "$LDFLAGS" -o "$dir/ee-setup$ext" "$HERE"
     cp "$HERE/README.md" "$HERE/LICENSE" "$dir/"
     if [ "$goos" = windows ]; then
         (cd "$HERE/dist" && zip -X -qr "$name.zip" "$name")
     else
         COPYFILE_DISABLE=1 tar --no-xattrs --uid 0 --gid 0 --uname root --gname root \
-            --sort=name -czf "$HERE/dist/$name.tar.gz" -C "$HERE/dist" "$name"
+            -czf "$HERE/dist/$name.tar.gz" -C "$HERE/dist" "$name"
     fi
     rm -rf "$dir"
 }

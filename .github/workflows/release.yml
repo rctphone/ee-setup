@@ -55,7 +55,7 @@ jobs:
             (cd dist && zip -X -qr "$name.zip" "$name")
           else
             COPYFILE_DISABLE=1 tar --no-xattrs --uid 0 --gid 0 --uname root --gname root \
-              --sort=name -czf "dist/$name.tar.gz" -C dist "$name"
+              -czf "dist/$name.tar.gz" -C dist "$name"
           fi
           rm -rf "dist/$name"
       - uses: actions/upload-artifact@v4
