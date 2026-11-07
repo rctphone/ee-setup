@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +117,11 @@ func Probe(ctx context.Context, host, password string) (*Device, error) {
 		return d, nil
 	}
 
+	// Neither protocol answered: fingerprint the web server itself.
+	if m := homeModel(ctx, host); m != "" {
+		return &Device{Model: m, Host: host, VHost: tclapi.DefaultVHost}, nil
+	}
+
 	// EE71 answers the same method with plain JSON.
 	c71 := ee71api.New(host, password)
 	if salt, err := c71.Salt(ctx); err == nil && salt != "" {
@@ -160,6 +167,49 @@ func Find(ctx context.Context, explicit, password string) (*Device, error) {
 		firstErr = ErrNotFound
 	}
 	return nil, firstErr
+}
+
+// homeModel fingerprints the web server. EE72 redirects any request whose Host
+// is not 4g.wifi; the page body may also name the model.
+func homeModel(ctx context.Context, host string) Model {
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+host+"/", nil)
+	if err != nil {
+		return ""
+	}
+	req.Host = "ee-setup.invalid"
+	if resp, err := client.Do(req); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 &&
+			strings.Contains(resp.Header.Get("Location"), tclapi.DefaultVHost) {
+			return ModelEE72
+		}
+	}
+
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, "http://"+host+"/", nil)
+	if err != nil {
+		return ""
+	}
+	req.Host = tclapi.DefaultVHost
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	switch {
+	case strings.Contains(string(body), "EE72"):
+		return ModelEE72
+	case strings.Contains(string(body), "EE71"):
+		return ModelEE71
+	}
+	return ""
 }
 
 // Version returns a human-readable firmware string from Info, if present.

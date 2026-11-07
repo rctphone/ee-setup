@@ -29,6 +29,42 @@ type USBDevice struct {
 // IsEDL reports whether the device is in Qualcomm EDL mode.
 func (d USBDevice) IsEDL() bool { return d.VID == edlVID && d.PID == edlPID }
 
+// ModelFromUSB identifies the attached router from its TCT USB PID. The
+// mapping comes from usb_config.ini: 0908/025E are EE71, 0196/0191/F000 are
+// EE72. PID 0195 is deliberately ambiguous — both models use it — and returns
+// an empty string.
+func ModelFromUSB() string {
+	devs, err := enumerate()
+	if err != nil {
+		return ""
+	}
+	model := ""
+	for _, d := range devs {
+		if d.VID != tctVID {
+			continue
+		}
+		m := modelFromPID(d.PID)
+		if m == "" {
+			continue
+		}
+		if model != "" && model != m {
+			return "" // contradictory evidence
+		}
+		model = m
+	}
+	return model
+}
+
+func modelFromPID(pid uint16) string {
+	switch pid {
+	case 0x0908, 0x025E: // Mac switch / release-init composition
+		return "EE71"
+	case 0x0196, 0x0191, 0xF000: // debug / Mac switch / service composition
+		return "EE72"
+	}
+	return ""
+}
+
 // DetectEDL reports whether any attached device is in EDL mode. Callers use
 // this as a hard stop before any USB write.
 func DetectEDL() (bool, error) {

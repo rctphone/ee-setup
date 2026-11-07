@@ -78,15 +78,20 @@ func run(ctx context.Context, o options) error {
 // identified from the device itself, never guessed from a path that both
 // models share.
 func runOverADB(ctx context.Context, o options) error {
+	switch usbswitch.ModelFromUSB() {
+	case "EE72":
+		return errEE72NeedsWeb()
+	case "EE71":
+		return runEE71(ctx, o, nil)
+	}
+
 	a, err := adbwrap.New(true)
 	if err != nil {
 		return fmt.Errorf("no router found over the network and no adb available: %w", err)
 	}
 	switch a.Model(ctx) {
 	case "EE72":
-		return fmt.Errorf("this is an EE72 — it is configured through its web interface, not ADB.\n" +
-			"  Connect to the router's Wi-Fi (or its USB network interface), then run ee-setup again.\n" +
-			"  Nothing was changed")
+		return errEE72NeedsWeb()
 	case "EE71":
 		return runEE71(ctx, o, a)
 	default:
@@ -168,6 +173,13 @@ func printEE72Result() {
 }
 
 // ---------------------------------------------------------------- EE71
+
+// errEE72NeedsWeb keeps EE72 provisioning on the documented web path.
+func errEE72NeedsWeb() error {
+	return fmt.Errorf("this is an EE72 — it is configured through its web interface, not ADB.\n" +
+		"  Connect to the router's Wi-Fi (or its USB network interface), then run ee-setup again.\n" +
+		"  Nothing was changed")
+}
 
 func runEE71(ctx context.Context, o options, a *adbwrap.ADB) error {
 	if a == nil {
