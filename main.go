@@ -41,7 +41,7 @@ func main() {
 	var o options
 	flag.StringVar(&o.host, "host", "", "router address (default: auto-detect)")
 	flag.StringVar(&o.password, "password", "", "admin password (default: ask)")
-	flag.StringVar(&o.rootPassword, "root-password", "", "new root/SSH password (default: ask)")
+	flag.StringVar(&o.rootPassword, "root-password", "oemlinux1", "root/SSH password")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -59,8 +59,8 @@ func run(ctx context.Context, o options) error {
 	step("Looking for the router...")
 	d, err := discover.Find(ctx, o.host, o.password)
 	if err != nil {
-		step("No web interface found; trying the EE71 USB path")
-		return runEE71(ctx, o)
+		step("No web interface found; checking USB/ADB")
+		return runOverADB(ctx, o)
 	}
 	ok("found %s at %s", d.Model, d.Host)
 	if v := d.Version(); v != "" {
@@ -70,7 +70,29 @@ func run(ctx context.Context, o options) error {
 	if d.Model == discover.ModelEE72 {
 		return runEE72(ctx, o, d)
 	}
-	return runEE71(ctx, o)
+	return runEE71(ctx, o, nil)
+}
+
+// runOverADB is the path when the web interface is not reachable — typical when
+// the router is in debug USB mode or in mass-storage mode. The model is
+// identified from the device itself, never guessed from a path that both
+// models share.
+func runOverADB(ctx context.Context, o options) error {
+	a, err := adbwrap.New(true)
+	if err != nil {
+		return fmt.Errorf("no router found over the network and no adb available: %w", err)
+	}
+	switch a.Model(ctx) {
+	case "EE72":
+		return fmt.Errorf("this is an EE72 — it is configured through its web interface, not ADB.\n" +
+			"  Connect to the router's Wi-Fi (or its USB network interface), then run ee-setup again.\n" +
+			"  Nothing was changed")
+	case "EE71":
+		return runEE71(ctx, o, a)
+	default:
+		// No ADB transport yet: try the EE71 mass-storage switch.
+		return runEE71(ctx, o, a)
+	}
 }
 
 // ---------------------------------------------------------------- EE72
@@ -83,9 +105,6 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 		return err
 	}
 	ok("logged in as admin")
-	if err := ensureRootPassword(&o); err != nil {
-		return err
-	}
 
 	step("Starting the local payload server")
 	s, err := channel.NewSession(&channel.Runner{Client: c})
@@ -126,7 +145,7 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 
 	if !confirm("Reboot the router now to start it in debug USB mode?") {
 		step("Reboot skipped. ADB will appear after the next power-up.")
-		printEE72Result(o)
+		printEE72Result()
 		done()
 		return nil
 	}
@@ -135,12 +154,12 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 	// The connection dies with the device; that is expected.
 	_ = runner.Run(ctx, "reboot")
 	waitForADB(ctx)
-	printEE72Result(o)
+	printEE72Result()
 	done()
 	return nil
 }
 
-func printEE72Result(o options) {
+func printEE72Result() {
 	fmt.Println("\n[+] Connect with:")
 	fmt.Println("      adb shell")
 	fmt.Println("      ssh root@4g.wifi        (the root password you entered)")
@@ -150,13 +169,13 @@ func printEE72Result(o options) {
 
 // ---------------------------------------------------------------- EE71
 
-func runEE71(ctx context.Context, o options) error {
-	if err := ensureRootPassword(&o); err != nil {
-		return err
-	}
-	a, err := adbwrap.New(true)
-	if err != nil {
-		return fmt.Errorf("%w\n  The EE71 path needs adb; the EE72 path does not", err)
+func runEE71(ctx context.Context, o options, a *adbwrap.ADB) error {
+	if a == nil {
+		var err error
+		a, err = adbwrap.New(true)
+		if err != nil {
+			return fmt.Errorf("%w\n  The EE71 path needs adb; the EE72 path does not", err)
+		}
 	}
 	detail("adb: %s", a.Bin())
 
@@ -182,8 +201,12 @@ func runEE71(ctx context.Context, o options) error {
 			return fmt.Errorf("device did not appear in ADB mode: %w", err)
 		}
 	}
-	if !a.IsEE71(ctx) {
-		return fmt.Errorf("the connected ADB device does not look like an EE71")
+	switch a.Model(ctx) {
+	case "EE71":
+	case "EE72":
+		return fmt.Errorf("this is an EE72, not an EE71 — nothing was changed")
+	default:
+		return fmt.Errorf("the connected ADB device is not an EE71")
 	}
 	ok("EE71 in ADB mode")
 
@@ -232,37 +255,6 @@ func login(ctx context.Context, c *tclapi.Client, o *options) error {
 		fmt.Println("[!] Wrong password")
 	}
 	return tclapi.ErrAuth
-}
-
-// ensureRootPassword asks for the new root password when it was not supplied.
-// The password is never stored anywhere but in memory for this run.
-func ensureRootPassword(o *options) error {
-	if o.rootPassword != "" {
-		return nil
-	}
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("pass --root-password in non-interactive mode")
-	}
-	for {
-		pw, err := promptPassword("New root/SSH password: ")
-		if err != nil {
-			return err
-		}
-		if pw == "" {
-			fmt.Println("    password cannot be empty")
-			continue
-		}
-		again, err := promptPassword("Repeat: ")
-		if err != nil {
-			return err
-		}
-		if pw != again {
-			fmt.Println("    passwords do not match, try again")
-			continue
-		}
-		o.rootPassword = pw
-		return nil
-	}
 }
 
 func promptPassword(label string) (string, error) {

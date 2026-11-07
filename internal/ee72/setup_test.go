@@ -4,25 +4,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-
-	"github.com/GehirnInc/crypt/sha512_crypt"
 )
-
-func TestPasswordHashVerifies(t *testing.T) {
-	hash, err := PasswordHash("test-password")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(hash, "$6$") {
-		t.Fatalf("hash is not SHA-512 crypt: %q", hash)
-	}
-	if err := sha512_crypt.New().Verify(hash, []byte("test-password")); err != nil {
-		t.Fatalf("hash does not verify: %v", err)
-	}
-	if err := sha512_crypt.New().Verify(hash, []byte("wrong")); err == nil {
-		t.Fatal("wrong password verified")
-	}
-}
 
 func TestScriptContents(t *testing.T) {
 	script, err := Script(Options{RootPassword: "test-password", RemoveLock: true}, "192.0.2.19")

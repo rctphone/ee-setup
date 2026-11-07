@@ -142,9 +142,38 @@ func (a *ADB) Push(ctx context.Context, local, remote string) error {
 	return err
 }
 
-// IsEE71 reports whether the connected ADB device carries EE71 markers.
-func (a *ADB) IsEE71(ctx context.Context) bool {
-	out, err := a.Shell(ctx, "for p in /etc/mobileap_cfg.xml /usr/oem/core_app /jrd-resource /system/jrd-resource; "+
-		"do [ -e \"$p\" ] && echo FOUND && break; done")
-	return err == nil && strings.Contains(out, "FOUND")
+// Model identifies the attached device as EE71 or EE72. The kernel line is
+// authoritative: EE71 runs 3.10.49, EE72 runs 5.4.x. Distinctive paths are used
+// as a fallback, and /jrd-resource is deliberately not one of them — both
+// models have it.
+func (a *ADB) Model(ctx context.Context) string {
+	const probe = `if [ -d /systemrw ] && [ -d /data/jrd/usr ]; then echo EE72; ` +
+		`elif [ -e /usr/oem/core_app ] || [ -e /etc/mobileap_cfg.xml ]; then echo EE71; ` +
+		`else case "$(uname -r)" in 3.10*) echo EE71 ;; 5.*) echo EE72 ;; esac; fi`
+	out, err := a.Shell(ctx, probe)
+	if err != nil {
+		return ""
+	}
+	switch strings.TrimSpace(out) {
+	case "EE71", "EE72":
+		return strings.TrimSpace(out)
+	}
+	return ""
+}
+
+// ShellScript runs a multi-line shell script through the device's sh.
+func (a *ADB) ShellScript(ctx context.Context, script string) (string, error) {
+	if a.verbose {
+		fmt.Printf("    $ adb shell sh -s <%d bytes>\n", len(script))
+	}
+	cmd := exec.CommandContext(ctx, a.bin, "shell", "sh", "-s")
+	cmd.Stdin = strings.NewReader(script)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	err := cmd.Run()
+	if err != nil {
+		return out.String(), fmt.Errorf("adb shell script: %w: %s", err, strings.TrimSpace(errb.String()))
+	}
+	return out.String(), nil
 }

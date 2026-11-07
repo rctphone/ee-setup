@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/GehirnInc/crypt/sha512_crypt"
 )
 
 // Options controls the on-device procedure.
@@ -44,20 +42,10 @@ func (o *Options) Defaults() {
 	}
 }
 
-// PasswordHash returns a SHA-512 crypt hash for the password. A nil salt makes
-// the library generate a random one.
-func PasswordHash(password string) (string, error) {
-	return sha512_crypt.New().Generate([]byte(password), nil)
-}
-
 // Script builds the on-device shell script. hostIP is the address the device
 // uses to fetch optional files.
 func Script(o Options, hostIP string) (string, error) {
 	o.Defaults()
-	hash, err := PasswordHash(o.RootPassword)
-	if err != nil {
-		return "", err
-	}
 	stamp := time.Now().Format("20060102-150405")
 
 	var b strings.Builder
@@ -68,7 +56,7 @@ func Script(o Options, hostIP string) (string, error) {
 	p("set -e")
 	p("H=%s", hostIP)
 	p("B=/data/jrd/usr/eesetup-%s", stamp)
-	p("HASH='%s'", hash)
+	p("PW='%s'", o.RootPassword)
 	p("echo '== ee-setup (EE72) =='")
 	p("uname -a")
 	p("id")
@@ -103,11 +91,14 @@ func Script(o Options, hostIP string) (string, error) {
 	}
 
 	p("echo '[4/5] root password'")
-	p("awk -v h=\"$HASH\" 'BEGIN{FS=OFS=\":\"} $1==\"root\"{$2=h} {print}' /etc/shadow > /data/jrd/usr/shadow.new")
-	p("grep -F -q \"root:$HASH\" /data/jrd/usr/shadow.new || { echo 'ERR: shadow rewrite failed'; exit 1; }")
-	p("cat /data/jrd/usr/shadow.new > /etc/shadow")
+	p("if printf 'root:%%s\\n' \"$PW\" | chpasswd 2>/dev/null; then")
+	p("  echo 'password set (chpasswd)'")
+	p("else")
+	p("  printf '%%s\\n%%s\\n' \"$PW\" \"$PW\" | passwd root")
+	p("  echo 'password set (passwd)'")
+	p("fi")
 	p("chmod 600 /etc/shadow")
-	p("grep -F -q \"root:$HASH\" /etc/shadow && echo 'password hash written'")
+	p("grep -q '^root:' /etc/shadow && echo 'root entry present'")
 
 	if o.Dropbear != nil && len(o.Dropbear.Binary) > 0 {
 		p("echo '[5/5] dropbear'")
