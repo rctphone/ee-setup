@@ -76,9 +76,6 @@ func run(ctx context.Context, o options) error {
 // ---------------------------------------------------------------- EE72
 
 func runEE72(ctx context.Context, o options, d *discover.Device) error {
-	if err := ensureRootPassword(&o); err != nil {
-		return err
-	}
 	step("Logging in to the web interface")
 	c := tclapi.New(d.Host, o.password)
 	c.VHost = d.VHost
@@ -86,6 +83,9 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 		return err
 	}
 	ok("logged in as admin")
+	if err := ensureRootPassword(&o); err != nil {
+		return err
+	}
 
 	step("Starting the local payload server")
 	s, err := channel.NewSession(&channel.Runner{Client: c})
