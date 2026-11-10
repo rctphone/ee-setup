@@ -54,6 +54,7 @@ func main() {
 
 func run(ctx context.Context, o options) error {
 	fmt.Printf("=== ee-setup %s: ADB + SSH + root for Alcatel EE71/EE72 ===\n", version)
+	warn()
 
 	step("Looking for the router...")
 	d, err := discover.Find(ctx, o.host, o.password)
@@ -154,6 +155,23 @@ func printEE72Result(rootPassword string) {
 }
 
 // ---------------------------------------------------------------- EE71
+
+// warn prints the recovery limits of the hardware before anything is changed.
+func warn() {
+	fmt.Print(`
+[!] USE AT YOUR OWN RISK
+    This tool changes the adbd lock, the root password and the boot USB
+    composition. If something goes wrong there is no recovery path:
+      - EDL (05c6:9008, entered by holding Reset at power-on): no public signed
+        firehose loader exists for this device, so EDL cannot restore it.
+      - Recovery partition: no adbd, no usbd, no USB init and no network. Only a
+        serial console on ttyMSM0, with an unknown root password.
+      - The bootloader is locked and only boots signed images.
+    The tool never writes to MTD partitions and keeps backups under
+    /data/jrd/usr/eesetup-<stamp>/, but an interrupted write can still leave
+    the device unusable. Continue only if you accept that.
+`)
+}
 
 // errEE72NeedsWeb keeps EE72 provisioning on the documented web path.
 func errEE72NeedsWeb() error {

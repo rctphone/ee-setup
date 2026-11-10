@@ -57,6 +57,21 @@ SCSI command itself, waits for ADB, then installs from embedded assets:
 If the router is in mass-storage mode: power it off, hold RESET, connect USB,
 release when the LEDs blink, then run `ee-setup` again.
 
+## Warning
+
+This tool changes the adbd lock, the root password and the boot USB composition.
+There is no recovery path if the device stops booting:
+
+- **EDL** (`05c6:9008`, entered by holding Reset at power-on): no public signed
+  firehose loader exists for this device, so EDL cannot restore it.
+- **Recovery partition**: no `adbd`, no `usbd`, no USB init and no network. Only
+  a serial console on `ttyMSM0`, and the root password is an unknown hash.
+- **Locked bootloader**: it verifies signatures and boots only signed images.
+
+Nothing is written to MTD partitions, and a backup is made under
+`/data/jrd/usr/eesetup-<stamp>/`, but an interrupted write can still leave the
+device unusable. Use at your own risk.
+
 ## Requirements
 
 - **adb** on `PATH` (Android Platform Tools) for the EE71 path. The EE72 path
