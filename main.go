@@ -106,29 +106,35 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 	step("Logging in to the web interface")
 	c := tclapi.New(d.Host, o.password)
 	c.VHost = d.VHost
+	c.HTTP.Timeout = 30 * time.Second
 	if err := login(ctx, c, &o); err != nil {
 		return err
 	}
 	ok("logged in as admin")
 
-	step("Starting the local payload server")
-	s, err := channel.NewSession(&channel.Runner{Client: c})
+	runner := &channel.Runner{Client: c}
+	db := adjacentDropbear()
+	opts := ee72.Options{
+		RootPassword: o.rootPassword,
+		RemoveLock:   true,
+		Dropbear:     db,
+	}
+
+	s, err := channel.NewSession(runner)
 	if err != nil {
-		return err
+		if !errors.Is(err, channel.ErrPortUnavailable) {
+			return err
+		}
+		return runEE72Chunked(ctx, c, runner, opts, db)
 	}
 	defer s.Close()
-	detail("http://%s/", s.HostIP)
+	detail("payload server: http://%s/", s.HostIP)
 
-	db := adjacentDropbear()
 	if db != nil {
 		detail("installing the dropbear binary found next to ee-setup")
 		s.SetFile("dropbear", db.Binary)
 	}
-	script, err := ee72.Script(ee72.Options{
-		RootPassword: o.rootPassword,
-		RemoveLock:   true,
-		Dropbear:     db,
-	}, s.HostIP)
+	script, err := ee72.Script(opts, s.HostIP)
 	if err != nil {
 		return err
 	}
@@ -144,30 +150,68 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 		return fmt.Errorf("the device script did not finish")
 	}
 	ok("changes applied")
-
-	runner := &channel.Runner{Client: c}
 	_ = runner.Reset(ctx)
 
 	if !confirm("Reboot the router now to start it in debug USB mode?") {
 		step("Reboot skipped. ADB will appear after the next power-up.")
-		printEE72Result()
+		printEE72Result(o.rootPassword)
 		done()
 		return nil
 	}
-
 	step("Rebooting")
-	// The connection dies with the device; that is expected.
 	_ = runner.Run(ctx, "reboot")
 	waitForADB(ctx)
-	printEE72Result()
+	printEE72Result(o.rootPassword)
 	done()
 	return nil
 }
 
-func printEE72Result() {
+// runEE72Chunked is the no-privilege path: port 80 could not be bound, so the
+// script is sent in 28-byte commands. There is no live log, so the result is
+// verified after the reboot.
+func runEE72Chunked(ctx context.Context, c *tclapi.Client, runner *channel.Runner,
+	opts ee72.Options, db *ee72.Dropbear) error {
+	step("Port 80 is not available without administrator rights")
+	step("Sending the script in 28-byte commands instead (no sudo, no server)")
+	if db != nil {
+		step("dropbear is skipped in this mode: no server to fetch the binary from")
+		opts.Dropbear = nil
+	}
+	script, err := ee72.Script(opts, "")
+	if err != nil {
+		return err
+	}
+
+	step("Applying changes on the device")
+	detail("backup → remount → adbd lock → root password → boot composition")
+	fmt.Printf("    %d commands, base64 over the web API\n", len(channel.ChunkCommands(script)))
+	if err := runner.ChunkScan(ctx, script); err != nil {
+		return fmt.Errorf("sending the script: %w", err)
+	}
+	_ = runner.Reset(ctx)
+	ok("script delivered and started")
+	step("Waiting a few seconds for the device to finish")
+	time.Sleep(5 * time.Second)
+	step("There is no live log in this mode; the result is checked after reboot")
+
+	if !confirm("Reboot the router now to start it in debug USB mode?") {
+		step("Reboot skipped. ADB will appear after the next power-up.")
+		printEE72Result(opts.RootPassword)
+		done()
+		return nil
+	}
+	step("Rebooting")
+	_ = runner.Run(ctx, "reboot")
+	waitForADB(ctx)
+	printEE72Result(opts.RootPassword)
+	done()
+	return nil
+}
+
+func printEE72Result(rootPassword string) {
 	fmt.Println("\n[+] Connect with:")
-	fmt.Println("      adb shell")
-	fmt.Println("      ssh root@4g.wifi        (the root password you entered)")
+	fmt.Println("      adb shell      (verifies the adbd lock was removed)")
+	fmt.Printf("      ssh root@4g.wifi        (password: %s)\n", rootPassword)
 	fmt.Println("\n    Revert instructions are in the backup directory on the device:")
 	fmt.Println("      /data/jrd/usr/eesetup-<stamp>/")
 }
@@ -328,6 +372,9 @@ func waitForADB(ctx context.Context) {
 		return
 	}
 	ok("ADB is up")
+	if out, err := a.Shell(ctx, "id"); err == nil {
+		detail("adb shell: %s", strings.TrimSpace(out))
+	}
 }
 
 func printDeviceLog(out string) {

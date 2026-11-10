@@ -37,7 +37,7 @@ authenticated commands. `ee-setup` logs in, then uses that channel to:
    on exit (including on failure);
 3. remove `/jrd-resource/resource/lock_flag` so adbd accepts `shell:`, `exec:`
    and `sync:`;
-4. set the root password with `chpasswd` (falling back to `passwd`);
+4. set the root password with `passwd`;
 5. write `0196` to `/systemrw/boot_hsusb_comp`, so the debug composition — with
    ADB — is used from the next boot on.
 
@@ -61,8 +61,11 @@ release when the LEDs blink, then run `ee-setup` again.
 
 - **adb** on `PATH` (Android Platform Tools) for the EE71 path. The EE72 path
   does not need adb until you reboot.
-- **Administrator rights**: port 80 is used to serve the payload script to the
-  device, and the EE71 USB switch needs raw USB access.
+- **macOS: `sudo` is optional.** With it the tool serves the script from a local
+  HTTP server and shows a live log. Without it the script is sent in 28-byte
+  commands over the web API, and the result is checked after reboot.
+- **Windows: no elevation needed** for the EE72 path.
+- The EE71 USB switch needs raw USB access (administrator/root).
 - **EE72 dropbear** is optional and not bundled. Put an ARMv7 **hard-float**
   `dropbear` binary next to the `ee-setup` executable and it is installed and
   started automatically. EE71 soft-float binaries will not run on the EE72 —
@@ -73,6 +76,8 @@ release when the LEDs blink, then run `ee-setup` again.
 - Every run creates a backup directory before the first write.
 - The script carries a trap that returns `/` to read-only even when it fails.
 - The tool refuses to touch a device in Qualcomm EDL (`05c6:9008`).
+- The 28-byte delivery path is validated against the real EE72 rootfs under QEMU
+  (`internal/ee72/harness_test.go`).
 - Nothing is written until the admin login succeeds.
 
 ## Revert

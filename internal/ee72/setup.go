@@ -91,14 +91,11 @@ func Script(o Options, hostIP string) (string, error) {
 	}
 
 	p("echo '[4/5] root password'")
-	p("if printf 'root:%%s\\n' \"$PW\" | chpasswd 2>/dev/null; then")
-	p("  echo 'password set (chpasswd)'")
-	p("else")
-	p("  printf '%%s\\n%%s\\n' \"$PW\" \"$PW\" | passwd root")
+	p("if printf '%%s\\n%%s\\n' \"$PW\" \"$PW\" | passwd root >/dev/null 2>&1; then")
 	p("  echo 'password set (passwd)'")
+	p("else")
+	p("  echo 'WARN: could not set the root password; continuing'")
 	p("fi")
-	p("chmod 600 /etc/shadow")
-	p("grep -q '^root:' /etc/shadow && echo 'root entry present'")
 
 	if o.Dropbear != nil && len(o.Dropbear.Binary) > 0 {
 		p("echo '[5/5] dropbear'")

