@@ -15,7 +15,7 @@ func TestWriteContainerHarness(t *testing.T) {
 	if os.Getenv("EE72_HARNESS") == "" {
 		t.Skip("set EE72_HARNESS=1")
 	}
-	s, err := Script(Options{RootPassword: "oemlinux1", RemoveLock: true}, "")
+	s, err := Script(Options{RootPassword: "oemlinux1", RemoveLock: true})
 	if err != nil {
 		t.Fatal(err)
 	}

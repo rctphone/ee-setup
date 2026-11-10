@@ -61,15 +61,8 @@ release when the LEDs blink, then run `ee-setup` again.
 
 - **adb** on `PATH` (Android Platform Tools) for the EE71 path. The EE72 path
   does not need adb until you reboot.
-- **macOS: `sudo` is optional.** With it the tool serves the script from a local
-  HTTP server and shows a live log. Without it the script is sent in 28-byte
-  commands over the web API, and the result is checked after reboot.
-- **Windows: no elevation needed** for the EE72 path.
+- **No administrator rights needed** for EE72 on macOS or Windows.
 - The EE71 USB switch needs raw USB access (administrator/root).
-- **EE72 dropbear** is optional and not bundled. Put an ARMv7 **hard-float**
-  `dropbear` binary next to the `ee-setup` executable and it is installed and
-  started automatically. EE71 soft-float binaries will not run on the EE72 —
-  the firmware is `armv7l` hard-float.
 
 ## Safety
 
@@ -77,7 +70,8 @@ release when the LEDs blink, then run `ee-setup` again.
 - The script carries a trap that returns `/` to read-only even when it fails.
 - The tool refuses to touch a device in Qualcomm EDL (`05c6:9008`).
 - The 28-byte delivery path is validated against the real EE72 rootfs under QEMU
-  (`internal/ee72/harness_test.go`).
+  (`internal/ee72/harness_test.go`). There is no HTTP server and no privileged
+  port: the script is always sent in chunks over the authenticated web API.
 - Nothing is written until the admin login succeeds.
 
 ## Revert

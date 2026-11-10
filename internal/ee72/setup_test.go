@@ -7,7 +7,7 @@ import (
 )
 
 func TestScriptContents(t *testing.T) {
-	script, err := Script(Options{RootPassword: "test-password", RemoveLock: true}, "192.0.2.19")
+	script, err := Script(Options{RootPassword: "test-password", RemoveLock: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestScriptParses(t *testing.T) {
 	if err != nil {
 		t.Skip("no sh on this host")
 	}
-	script, err := Script(Options{RootPassword: "test-password", RemoveLock: true}, "192.0.2.19")
+	script, err := Script(Options{RootPassword: "test-password", RemoveLock: true})
 	if err != nil {
 		t.Fatal(err)
 	}

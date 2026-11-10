@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,71 +112,10 @@ func runEE72(ctx context.Context, o options, d *discover.Device) error {
 	ok("logged in as admin")
 
 	runner := &channel.Runner{Client: c}
-	db := adjacentDropbear()
-	opts := ee72.Options{
+	script, err := ee72.Script(ee72.Options{
 		RootPassword: o.rootPassword,
 		RemoveLock:   true,
-		Dropbear:     db,
-	}
-
-	s, err := channel.NewSession(runner)
-	if err != nil {
-		if !errors.Is(err, channel.ErrPortUnavailable) {
-			return err
-		}
-		return runEE72Chunked(ctx, c, runner, opts, db)
-	}
-	defer s.Close()
-	detail("payload server: http://%s/", s.HostIP)
-
-	if db != nil {
-		detail("installing the dropbear binary found next to ee-setup")
-		s.SetFile("dropbear", db.Binary)
-	}
-	script, err := ee72.Script(opts, s.HostIP)
-	if err != nil {
-		return err
-	}
-
-	step("Applying changes on the device")
-	detail("backup → remount → adbd lock → root password → boot composition")
-	out, err := s.RunScript(ctx, script)
-	printDeviceLog(out)
-	if err != nil {
-		return fmt.Errorf("device script: %w", err)
-	}
-	if !strings.Contains(out, "DONE") {
-		return fmt.Errorf("the device script did not finish")
-	}
-	ok("changes applied")
-	_ = runner.Reset(ctx)
-
-	if !confirm("Reboot the router now to start it in debug USB mode?") {
-		step("Reboot skipped. ADB will appear after the next power-up.")
-		printEE72Result(o.rootPassword)
-		done()
-		return nil
-	}
-	step("Rebooting")
-	_ = runner.Run(ctx, "reboot")
-	waitForADB(ctx)
-	printEE72Result(o.rootPassword)
-	done()
-	return nil
-}
-
-// runEE72Chunked is the no-privilege path: port 80 could not be bound, so the
-// script is sent in 28-byte commands. There is no live log, so the result is
-// verified after the reboot.
-func runEE72Chunked(ctx context.Context, c *tclapi.Client, runner *channel.Runner,
-	opts ee72.Options, db *ee72.Dropbear) error {
-	step("Port 80 is not available without administrator rights")
-	step("Sending the script in 28-byte commands instead (no sudo, no server)")
-	if db != nil {
-		step("dropbear is skipped in this mode: no server to fetch the binary from")
-		opts.Dropbear = nil
-	}
-	script, err := ee72.Script(opts, "")
+	})
 	if err != nil {
 		return err
 	}
@@ -192,18 +130,17 @@ func runEE72Chunked(ctx context.Context, c *tclapi.Client, runner *channel.Runne
 	ok("script delivered and started")
 	step("Waiting a few seconds for the device to finish")
 	time.Sleep(5 * time.Second)
-	step("There is no live log in this mode; the result is checked after reboot")
 
 	if !confirm("Reboot the router now to start it in debug USB mode?") {
 		step("Reboot skipped. ADB will appear after the next power-up.")
-		printEE72Result(opts.RootPassword)
+		printEE72Result(o.rootPassword)
 		done()
 		return nil
 	}
 	step("Rebooting")
 	_ = runner.Run(ctx, "reboot")
 	waitForADB(ctx)
-	printEE72Result(opts.RootPassword)
+	printEE72Result(o.rootPassword)
 	done()
 	return nil
 }
@@ -342,21 +279,6 @@ func confirm(question string) bool {
 	default:
 		return false
 	}
-}
-
-// adjacentDropbear returns a dropbear binary shipped next to the executable.
-// EE72 firmware is armv7 hard-float, so only such a build is usable. Keeping it
-// next to the binary means no flag and no path guessing.
-func adjacentDropbear() *ee72.Dropbear {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil
-	}
-	bin, err := os.ReadFile(filepath.Join(filepath.Dir(exe), "dropbear"))
-	if err != nil || len(bin) == 0 {
-		return nil
-	}
-	return &ee72.Dropbear{Binary: bin}
 }
 
 // waitForADB waits up to two minutes for the router to come back with ADB.
